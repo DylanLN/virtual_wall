@@ -1,0 +1,10 @@
+<class_libraries>
+    <library path="lib/libvirtual_wall">
+      <class type="virtual_wall::VirtualWall" base_class_type="costmap_2d::Layer">
+        <description>
+          Include moving objects into the costmap. They can be pure virtual
+          or other robots that can not be seen by the robots sensing
+        </description>
+      </class>
+    </library>
+  </class_libraries>
