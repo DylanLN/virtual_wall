@@ -1,6 +1,8 @@
 #include <pluginlib/class_list_macros.h>
 
 #include <virtual_wall/virtual_wall.h>
+#include <tf2/convert.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 PLUGINLIB_EXPORT_CLASS(virtual_wall::VirtualWall, costmap_2d::Layer)
 
@@ -25,10 +27,13 @@ VirtualWall::~VirtualWall()
 
 void VirtualWall::onInitialize()
 {
+  cout << "onInitialize()" << endl;
+    boost::unique_lock < boost::recursive_mutex > lock(data_access_);
     ros::NodeHandle g_nh;
     nh = ros::NodeHandle("~/" + name_);
     matchSize();
     current_ = true;
+    enabled_ = true;
 
     add_wall_sub_ = g_nh.subscribe("/clicked_point", 1, &VirtualWall::AddWallCallback, this);
     wall_list_pub = g_nh.advertise<std_msgs::Int32>("/virtual_wall_list", 1);
@@ -37,10 +42,15 @@ void VirtualWall::onInitialize()
 
 void VirtualWall::matchSize()
 {
+    boost::unique_lock < boost::recursive_mutex > lock(data_access_);
     costmap_2d::Costmap2D* master = layered_costmap_->getCostmap();
     resolution = master->getResolution();
     // resizeMap(master->getSizeInCellsX(), master->getSizeInCellsY(), master->getResolution(),
     //           master->getOriginX(), master->getOriginY());
+
+    global_frame_ = layered_costmap_->getGlobalFrameID();
+    cout << "global_frame_ : " << global_frame_ << endl;
+    map_frame_ = "map";
 }
 
 /* *********************************************************************
@@ -64,25 +74,62 @@ void VirtualWall::updateBounds(double robot_x, double robot_y, double robot_yaw,
  */
 void VirtualWall::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, int min_j, int max_i, int max_j)
 {
-  // cout << "size : " << wallPoint.size() << endl;
-    for (size_t i = 0; i < wallPoint.size(); i++)
-    {
-      std_msgs::Int32 msg;
-      msg.data = wallPoint[i].id;
-      wall_list_pub.publish(msg);
-      for (size_t j = 0; j < wallPoint[i].polygon.points.size(); j++)
+    boost::unique_lock < boost::recursive_mutex > lock(data_access_);
+    //判断frame id 是否是map
+    if(global_frame_ == map_frame_){
+      for (size_t i = 0; i < wallPoint.size(); i++)
       {
-          // cout << "(" << wallPoint[i].polygon.points[j].x << ", " << wallPoint[i].polygon.points[j].y << ")";
-          unsigned int pixle_x;
-          unsigned int pixle_y;
-          bool ret = master_grid.worldToMap(wallPoint[i].polygon.points[j].x, wallPoint[i].polygon.points[j].y, pixle_x, pixle_y);
-          if (ret)
-          {
-            // cout << " (" << pixle_x << ", " << pixle_y << ") ";
-            master_grid.setCost(pixle_x, pixle_y, costmap_2d::LETHAL_OBSTACLE);
-          }
-          // else
-            // cout << "( ret )";
+        std_msgs::Int32 msg;
+        msg.data = wallPoint[i].id;
+        wall_list_pub.publish(msg);
+        for (size_t j = 0; j < wallPoint[i].polygon.points.size(); j++)
+        {
+            // cout << "(" << wallPoint[i].polygon.points[j].x << ", " << wallPoint[i].polygon.points[j].y << ")";
+            unsigned int pixle_x;
+            unsigned int pixle_y;
+            bool ret = master_grid.worldToMap(wallPoint[i].polygon.points[j].x, wallPoint[i].polygon.points[j].y, pixle_x, pixle_y);
+            if (ret)
+            {
+              // cout << " (" << pixle_x << ", " << pixle_y << ") ";
+              master_grid.setCost(pixle_x, pixle_y, costmap_2d::LETHAL_OBSTACLE);
+            }
+            // else
+              // cout << "( ret )";
+        }
+      }
+    }else{
+      geometry_msgs::TransformStamped transform;
+      try
+      {
+        transform = tf_->lookupTransform(global_frame_, map_frame_, ros::Time(0));
+      }catch (tf2::TransformException ex){
+        ROS_ERROR("%s", ex.what());
+        return;
+      }
+      // Copy map data given proper transformations
+      tf2::Transform tf2_transform;
+      tf2::convert(transform.transform, tf2_transform);
+
+      for (size_t i = 0; i < wallPoint.size(); i++)
+      {
+        std_msgs::Int32 msg;
+        msg.data = wallPoint[i].id;
+        wall_list_pub.publish(msg);
+        double wx, wy;
+        for (size_t j = 0; j < wallPoint[i].polygon.points.size(); j++)
+        {
+            unsigned int pixle_x;
+            unsigned int pixle_y;
+            wx = wallPoint[i].polygon.points[j].x;
+            wy = wallPoint[i].polygon.points[j].y;
+            tf2::Vector3 p(wx, wy, 0);
+            p = tf2_transform*p;
+            bool ret = master_grid.worldToMap(p.x(), p.y(), pixle_x, pixle_y);
+            if (ret)
+            {
+              master_grid.setCost(pixle_x, pixle_y, costmap_2d::LETHAL_OBSTACLE);
+            }
+        }
       }
     }
 }
@@ -129,33 +176,11 @@ bool VirtualWall::WallInterpolation()
   return true;
 }
 
-bool VirtualWall::updateWall(costmap_2d::Costmap2D& master_grid)
-{
-    for (size_t i = 0; i < wallPoint.size(); i++)
-    {
-      std_msgs::Int32 msg;
-      msg.data = wallPoint[i].id;
-      wall_list_pub.publish(msg);
-      for (size_t j = 0; j < wallPoint[i].polygon.points.size(); j++)
-      {
-          // cout << "(" << wallPoint[i].polygon.points[j].x << ", " << wallPoint[i].polygon.points[j].y << ")";
-          unsigned int pixle_x;
-          unsigned int pixle_y;
-          bool ret = master_grid.worldToMap(wallPoint[i].polygon.points[j].x, wallPoint[i].polygon.points[j].y, pixle_x, pixle_y);
-          if (ret)
-          {
-            // cout << " (" << pixle_x << ", " << pixle_y << ") ";
-            master_grid.setCost(pixle_x, pixle_y, costmap_2d::LETHAL_OBSTACLE);
-          }
-          // else
-            // cout << "( ret )";
-      }
-    }
-}
-
 //添加虚拟墙
 void VirtualWall::AddWallCallback(const geometry_msgs::PointStampedConstPtr& msg)
 {
+  cout << "AddWallCallback()" << endl;
+
   geometry_msgs::Point32 point;
   point.x = msg->point.x;
   point.y = msg->point.y;

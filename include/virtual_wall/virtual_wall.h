@@ -16,7 +16,7 @@
 #include <geometry_msgs/Polygon.h>
 #include <geometry_msgs/Point32.h>
 #include <std_msgs/Int32.h>
-
+#include <boost/thread.hpp>
 
 namespace virtual_wall
 {
@@ -30,6 +30,10 @@ private:
     ros::Subscriber sub;
     double resolution;
     double wallmax_x,wallmax_y,wallmin_x,wallmin_y;
+    //costmap框架
+    std::string global_frame_;
+    //地图框架
+    std::string map_frame_;
     //添加地图。
     ros::Subscriber add_wall_sub_;
     //地图列表
@@ -40,7 +44,7 @@ private:
     // //get地图
     // ros::ServiceServer get_wall_server_;
 
-    // std::mutex data_mutex;
+    boost::recursive_mutex data_access_;
     bool rolling_window_;
 
     std::vector<virtual_wall::Wall> v_wall;
