@@ -17,6 +17,8 @@
 #include <geometry_msgs/Point32.h>
 #include <std_msgs/Int32.h>
 #include <boost/thread.hpp>
+#include <visualization_msgs/Marker.h>
+
 
 namespace virtual_wall
 {
@@ -38,6 +40,8 @@ private:
     ros::Subscriber add_wall_sub_;
     //地图列表
     ros::Publisher wall_list_pub;
+    //发布虚拟墙标记
+    ros::Publisher wall_maker_pub;
     // //删除地图。
     ros::Subscriber delete_wall_sub;
     // ros::ServiceServer delete_wall_server_;

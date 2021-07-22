@@ -12,7 +12,7 @@ namespace virtual_wall{
 
 VirtualWall::VirtualWall()
 {
-  cout << "VirtualWall()" << endl;
+    cout << "VirtualWall()" << endl;
     // ros::NodeHandle n;
     wallmax_x = 0.0;
     wallmax_y = 0.0;
@@ -27,7 +27,6 @@ VirtualWall::~VirtualWall()
 
 void VirtualWall::onInitialize()
 {
-  cout << "onInitialize()" << endl;
     boost::unique_lock < boost::recursive_mutex > lock(data_access_);
     ros::NodeHandle g_nh;
     nh = ros::NodeHandle("~/" + name_);
@@ -38,6 +37,8 @@ void VirtualWall::onInitialize()
     add_wall_sub_ = g_nh.subscribe("/clicked_point", 1, &VirtualWall::AddWallCallback, this);
     wall_list_pub = g_nh.advertise<std_msgs::Int32>("/virtual_wall_list", 1);
     delete_wall_sub = g_nh.subscribe("/delete_wall", 1, &VirtualWall::DeleteWallCallback, this);
+    //发布虚拟墙标记
+    wall_maker_pub = g_nh.advertise<visualization_msgs::Marker>("virtual_wall_vis", 1);
 }
 
 void VirtualWall::matchSize()
@@ -61,6 +62,7 @@ void VirtualWall::matchSize()
 void VirtualWall::updateBounds(double robot_x, double robot_y, double robot_yaw, double* min_x, double* min_y,
                                 double* max_x, double* max_y)
 {
+    // useExtraBounds(min_x, min_y, max_x, max_y);
     *min_x = std::min(wallmin_x, *min_x);
     *min_y = std::min(wallmin_y, *min_y);
     *max_x = std::max(wallmax_x, *max_x);
@@ -77,6 +79,29 @@ void VirtualWall::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, int
     boost::unique_lock < boost::recursive_mutex > lock(data_access_);
     //判断frame id 是否是map
     if(global_frame_ == map_frame_){
+      //新建标记
+      visualization_msgs::Marker node_vis;
+      node_vis.header.frame_id = map_frame_;
+      node_vis.header.stamp = ros::Time::now();
+      node_vis.type = visualization_msgs::Marker::CUBE_LIST;
+      // node_vis.type = visualization_msgs::Marker::SPHERE_LIST;
+      node_vis.action = visualization_msgs::Marker::ADD;
+      node_vis.id = 0;
+      node_vis.pose.orientation.x = 0.0;
+      node_vis.pose.orientation.y = 0.0;
+      node_vis.pose.orientation.z = 0.0;
+      node_vis.pose.orientation.w = 1.0;
+      node_vis.color.a = 1.0;
+      node_vis.color.r = 1.0;
+      node_vis.color.g = 0.0;
+      node_vis.color.b = 0.0;
+
+      node_vis.scale.x = resolution;
+      node_vis.scale.y = resolution;
+      node_vis.scale.z = 0.3;
+
+      geometry_msgs::Point pt;
+      pt.z = 0.15;
       for (size_t i = 0; i < wallPoint.size(); i++)
       {
         std_msgs::Int32 msg;
@@ -92,11 +117,15 @@ void VirtualWall::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, int
             {
               // cout << " (" << pixle_x << ", " << pixle_y << ") ";
               master_grid.setCost(pixle_x, pixle_y, costmap_2d::LETHAL_OBSTACLE);
+              pt.x = wallPoint[i].polygon.points[j].x;
+              pt.y = wallPoint[i].polygon.points[j].y;
+              node_vis.points.push_back(pt);
             }
             // else
               // cout << "( ret )";
         }
       }
+      wall_maker_pub.publish(node_vis);
     }else{
       geometry_msgs::TransformStamped transform;
       try
